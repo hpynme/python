@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>YT MP3 Downloader</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="logo">🎧 YT MP3<br><span>Downloader</span></div>
+
+      <input id="url" placeholder="YouTube লিংক বা টাইটেল" />
+
+      <button id="searchBtn" class="green-btn">🔍</button>
+
+      <div id="infoBox" class="info hidden">
+        <img id="thumb" alt="thumb" />
+        <div class="meta">
+          <div id="title" class="title"></div>
+          <div id="duration" class="duration"></div>
+          <div id="est" class="est"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:10px;">
+        <button id="downloadBtn" class="green-btn big hidden">⬇️ ডাউনলোড করুন</button>
+      </div>
+
+      <div id="progressWrap" class="hidden">
+        <div id="progressBar" class="progress"><div id="progressFill"></div></div>
+        <div class="prog-meta">
+          <span id="progText">0%</span>
+          <span id="speedText">0 KB/s</span>
+        </div>
+      </div>
+
+      <div id="msg" class="msg"></div>
+    </div>
+  </div>
+
+<script>
+const searchBtn = document.getElementById('searchBtn');
+const urlIn = document.getElementById('url');
+const infoBox = document.getElementById('infoBox');
+const thumb = document.getElementById('thumb');
+const titleEl = document.getElementById('title');
+const durationEl = document.getElementById('duration');
+const estEl = document.getElementById('est');
+const downloadBtn = document.getElementById('downloadBtn');
+const progressWrap = document.getElementById('progressWrap');
+const progFill = document.getElementById('progressFill');
+const progText = document.getElementById('progText');
+const speedText = document.getElementById('speedText');
+const msg = document.getElementById('msg');
+
+function showMsg(t){
+  msg.innerText = t;
+}
+
+searchBtn.addEventListener('click', async ()=>{
+  const url = urlIn.value.trim();
+  if(!url){ showMsg('প্রথমে ইউটিউব লিংক দিন'); return; }
+  showMsg('খুঁজছি...');
+  try{
+    const res = await fetch('/info', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url})
+    });
+    const j = await res.json();
+    if(!j.ok){ showMsg(j.error || 'Error'); return; }
+    thumb.src = j.thumbnail;
+    titleEl.innerText = j.title;
+    durationEl.innerText = 'সময়: ' + j.duration;
+    estEl.innerText = 'আনুমানিক সাইজ: ' + j.estimated_size_mb + ' MB';
+    infoBox.classList.remove('hidden');
+    downloadBtn.classList.remove('hidden');
+    showMsg('');
+  }catch(e){
+    showMsg('এরর: ' + e.message);
+  }
+});
+
+let currentTask = null;
+downloadBtn.addEventListener('click', async ()=>{
+  const url = urlIn.value.trim();
+  if(!url) return;
+  showMsg('ডাউনলোড শুরু করছে...');
+  downloadBtn.disabled = true;
+  const res = await fetch('/download', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({url})
+  });
+  const j = await res.json();
+  if(!j.ok){ showMsg('Error starting download'); downloadBtn.disabled=false; return; }
+  currentTask = j.task_id;
+  progressWrap.classList.remove('hidden');
+  pollStatus(currentTask);
+});
+
+async function pollStatus(taskId){
+  const iv = setInterval(async ()=>{
+    try{
+      const r = await fetch('/status/' + taskId);
+      const d = await r.json();
+      if(!d.ok){ showMsg('Status error'); clearInterval(iv); return; }
+      if(d.total_mb) {
+        const percent = d.percent || 0;
+        progFill.style.width = (percent ? percent : 0) + '%';
+        progText.innerText = (percent ? percent : 0) + '%';
+      }
+      speedText.innerText = (d.speed_kb_s || 0) + ' KB/s';
+      if(d.status === 'finished'){
+        clearInterval(iv);
+        showMsg('ডাউনলোড সম্পন্ন। ডাউনলোড লিংক নিচে ক্লিক করুন।');
+        // create link:
+        const a = document.createElement('a');
+        a.href = '/file/' + taskId;
+        a.innerText = 'ফাইল ডাউনলোড করুন';
+        a.className = 'green-btn big';
+        a.style.display='block';
+        a.style.marginTop='8px';
+        msg.innerHTML = '';
+        msg.appendChild(a);
+        downloadBtn.disabled = false;
+      } else if(d.status === 'error'){
+        clearInterval(iv);
+        showMsg('Error: ' + (d.error || 'unknown'));
+        downloadBtn.disabled = false;
+      }
+    }catch(e){
+      clearInterval(iv);
+      showMsg('Poll error: ' + e.message);
+      downloadBtn.disabled = false;
+    }
+  }, 1000);
+}
+</script>
+</body>
+  </html>
